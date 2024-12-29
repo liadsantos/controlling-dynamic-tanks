@@ -4,6 +4,7 @@ import threading
 import logging
 import opcua
 import sys
+import pandas as pd
 
 from scipy.integrate import odeint
 from multiprocessing.pool import ThreadPool
@@ -78,16 +79,16 @@ def thread_control():
     
     # @TODO: define if I call the loop here or in the main thread
 
-    h0 = np.zeros(3,)   # zero condition for all three tanks
-    Q_i = np.zeros(3,)  # actuator
-    Q_hot = 0           # actuator for hot water
-    T = np.zeros(3,)    # temperature of the tanks
-    T_hot = 90          # temperature of hot reservoir
-
     # References
     h_ref = 50
     T_ref = 75  
     h_ref3 = 0  # @TODO: to be defined
+
+    h0 = np.zeros(3,)           # zero condition for all three tanks
+    Q_i = np.zeros(3,)          # actuator
+    Q_hot = 0                   # actuator for hot water
+    T = 25 * np.ones(3,)        # temperature of the tanks
+    T_hot = 90                  # temperature of hot reservoir
 
     # Aux variables
     level_tank1 = list()
@@ -97,33 +98,50 @@ def thread_control():
     valve_hot = list()
     temp_tank2 = list()
     level_tank2 = list()
-    stop_valve1 = False
+
+    fill_tank2 = False
     eps = 0.1
     delta = 1e-4
+    time_prev = 0
+    I2 = 1
+
+    # data_history = {}
+    # data_history["Time"] = []
+    # data_history["Hot valve"] = []
+    # data_history["Temperature t2"] = []
 
     for i in range(100):
         # Control law tank 1
         T[0] = 25
         error1 = h_ref - h0[0]
-        # if error1 < eps:
-        #     stop_valve1 = True      # if the level is ok for tank 1, turn off input valve
-        #     Q_i[0] = 0
-    
-        # elif error1 >= eps and not stop_valve1:
-        #     controller1 = 20
-        #     Q_i[0] = error1 * controller1
-        controller1 = 20
+        controller1 = 50
         Q_i[0] = error1 * controller1
 
-        # Control law tank 2
-        # How the temperature is related to valve hot?
-        error2_level = h_ref - h0[1]
-        T[1] = (Q_i[1] * T[0] + Q_hot * T_hot) / (Q_i[1] + Q_hot + delta)
-        error2_temp = T_ref - T[1]
-        controller2_level = 20
-        controller2_temp = 10
-        Q_i[1] = error2_level * controller2_level
-        Q_hot = error2_temp * controller2_temp      # @TODO: another controller - not sufficient to control temperature
+        if error1 < 100 * eps:
+            fill_tank2 = True
+
+        if fill_tank2:
+            # Control law tank 2
+            error2_level = h_ref - h0[1]
+            Kp2_level = 30
+            Q_i[1] = error2_level * Kp2_level
+
+            T[1] = (Q_i[1] * T[0] + Q_hot * T_hot) / (Q_i[1] + Q_hot + delta)
+            error2_temp = T_ref - T[1]
+
+            # proportional:
+            Kp2_temp = 5
+            P = error2_temp * Kp2_temp + error2_level * Kp2_level
+
+            # integrative:
+            time = (i+1) * eps
+            Ki2_temp = 5
+            I2 += Ki2_temp * error2_temp * (time - time_prev)
+
+            time_prev = time
+
+            # final control action:
+            Q_hot = P + I2
 
         time_steps.append(i)
         level_tank1.append(h0[0])
@@ -133,10 +151,7 @@ def thread_control():
         temp_tank2.append(T[1])
         level_tank2.append(h0[1])
 
-        logging.info('Calling process thread.')
-        # tanks = threading.Thread(target=thread_tanks, args=(h0, Q_i))
-        # tanks.start()
-        # tanks.join()
+        # Call thread that simulates the tanks dynamics
         pool = ThreadPool(processes=1)
         new_h0 = pool.apply_async(thread_tanks, args=(h0, Q_i, Q_hot))
         h1, h2, h3, sim_time = new_h0.get()
@@ -146,25 +161,38 @@ def thread_control():
         plt.clf()
 
         plt.subplot(3,1,1)
-        plt.plot(time_steps, level_tank1, label='Level tank 1')
-        plt.plot(time_steps, level_tank2, label='Level tank 2')
+        plt.plot(time_steps, level_tank1, label=f'Level tank 1: {h0[0]:.4f}')
+        plt.plot(time_steps, level_tank2, label=f'Level tank 2: {h0[1]:.4f}')
         plt.legend()
 
         plt.subplot(3,1,2)
-        plt.plot(time_steps, valve_1, label='Valve 1')
-        plt.plot(time_steps, valve_2, label='Valve 2')
-        plt.plot(time_steps, valve_hot, label='Valve hot')
+        plt.plot(time_steps, valve_1, label=f'Valve 1')
+        plt.plot(time_steps, valve_2, label=f'Valve 2')
+        plt.plot(time_steps, valve_hot, label=f'Valve hot: {Q_hot:.4f}')
         plt.legend()
 
         plt.subplot(3,1,3)
-        plt.plot(time_steps, temp_tank2, label='Temperature tank2')
+        plt.plot(time_steps, temp_tank2, label=f'Temperature tank2: {T[1]:.4f}')
         plt.legend()
 
         plt.pause(1.0)
+
+        # data_history["Time"].append(i)
+        # data_history["Hot valve"].append(Q_hot)
+        # data_history["Temperature t2"].append(T[1])
+
+        # df = pd.DataFrame(data_history)
+        # df.to_csv("./debug/history.csv")
 
 
 if __name__ == "__main__":
     plt.ion()
     plt.show()
+
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(message)s'
+    )
 
     thread_control()    
