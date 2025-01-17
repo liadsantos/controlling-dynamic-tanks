@@ -2,10 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import threading
 import logging
-import opcua
 import sys
-import pandas as pd
 
+from opcua import Client
 from scipy.integrate import odeint
 from multiprocessing.pool import ThreadPool
 
@@ -70,7 +69,7 @@ def thread_tanks(h0, Q_i, Q_hot, Q_cold):
     # Height
     H = 70
 
-    # Simulation time
+    # Simulation time (5 seconds)
     simulation_time = np.linspace(0.0, 5.0, 100)    
 
     h1 = odeint(tank1_model, h0[0], simulation_time, args=(Q_i[0], Q_i[1], H, r, R, gamma_1))
@@ -87,9 +86,7 @@ def thread_control():
     servidor OPC UA, simulando o processo em questao, enviando e recebendo dados.
     """
     
-    # @TODO: define if I call the loop here or in the main thread
-
-    # References
+    ### --- References
     h_ref = 50
     h_ref3 = 60                 
     T2_ref = 75  
@@ -103,7 +100,7 @@ def thread_control():
     T_hot = 90                  # temperature of hot reservoir
     T_cold = -5                 # temperature of cold reservoir
 
-    # History of variables
+    ### --- History of variables
     time_steps = list()
 
     level_tank1 = list()
@@ -120,7 +117,7 @@ def thread_control():
     temp_tank2 = list()         
     temp_tank3 = list()
 
-    # Auxiliary variables
+    ### --- Auxiliary variables
     fill_tank2 = False
     fill_tank3 = False
     eps = 0.1
@@ -130,10 +127,26 @@ def thread_control():
     I2 = 1                      # integrator of tank 2 (first value)
     I3 = 1
 
-    # data_history = {}
-    # data_history["Time"] = []
-    # data_history["Hot valve"] = []
-    # data_history["Temperature t2"] = []
+    ### --- Communicate with the server
+    client_tanks = Client("opc.tcp://Laiss-Laptop.local:53530/OPCUA/SimulationServer")
+    client_tanks.connect()
+    logging.info("Thread control connected to server")
+
+    servers = client_tanks.find_servers()
+    logging.info("Find the available servers")
+
+    for server in servers:
+        logging.info("Server URI:", server.ApplicationUri)
+        logging.info("Server ProductURI:", server.ProductUri)
+        logging.info("Discovery URLs:", server.DiscoveryUrls)
+    
+    # get the nodes
+    node_h1 = client_tanks.get_node("ns=3;s=h1")
+    node_h2 = client_tanks.get_node("ns=3;s=h2")
+    node_h3 = client_tanks.get_node("ns=3;s=h3")
+
+    # @TODO: Julia, aqui eu passo as informacoes para o servidor OPCUA somente do tanque 1
+    # @TODO: A ideia seria passar esses loops abaixo para o outro código "CLP"
 
     for i in range(500):
         # Control law tank 1
@@ -211,6 +224,11 @@ def thread_control():
         temp_tank2.append(T[1])
         temp_tank3.append(T[2])
 
+        # Send values to server
+        node_h1.set_value(h0[0])
+        node_h2.set_value(h0[1])
+        node_h3.set_value(h0[2])
+
         # Call thread that simulates the tanks dynamics
         pool = ThreadPool(processes=1)
         new_h0 = pool.apply_async(thread_tanks, args=(h0, Q_i, Q_hot, Q_cold))
@@ -244,13 +262,7 @@ def thread_control():
 
         plt.pause(0.1)
 
-        # data_history["Time"].append(i)
-        # data_history["Hot valve"].append(Q_hot)
-        # data_history["Temperature t2"].append(T[1])
-
-        # df = pd.DataFrame(data_history)
-        # df.to_csv("./debug/history.csv")
-
+    
 
 if __name__ == "__main__":
     plt.ion()
