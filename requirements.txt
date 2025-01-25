@@ -1,3 +1,4 @@
 matplotlib==3.9.3
 opcua==0.98.13
 scipy==1.13.1
+cryptography==44.0.0

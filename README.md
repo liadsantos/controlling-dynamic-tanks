@@ -1,7 +1,7 @@
 # Controle de tanques dinâmicos com sistemas distribuídos
 
 Alunas: <br>
-Júlia <br>
+Júlia Tarchi Maia de Souza
 Lais Isabelle Alves dos Santos
 
 Este projeto foi desenvolvido como trabalho final da disciplina de Sistemas Distribuídos do curso de Engenharia de Controle e Automação. Ele consiste em desenvolver um sistema que, primeiramente, controle a dinâmica de três tanques.

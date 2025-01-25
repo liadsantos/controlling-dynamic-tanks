@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import threading
 import logging
 import sys
+import time
 
 from opcua import Client
 from scipy.integrate import odeint
@@ -88,7 +89,7 @@ def thread_control():
     
     ### --- References
     h_ref = 50
-    h_ref3 = 60                 
+    h_ref3 = 60                  
     T2_ref = 75  
     T3_ref = 15
 
@@ -99,23 +100,6 @@ def thread_control():
     T = 25 * np.ones(3,)        # temperature of the tanks
     T_hot = 90                  # temperature of hot reservoir
     T_cold = -5                 # temperature of cold reservoir
-
-    ### --- History of variables
-    time_steps = list()
-
-    level_tank1 = list()
-    level_tank2 = list()    
-    level_tank3 = list()
-
-    valve_1 = list()            # history of Q_1
-    valve_2 = list()            # history of Q_2
-    valve_3 = list()            # history of Q_3
-    valve_hot = list()          # history of Q_hot
-    valve_cold = list()         # history of Q_cold
-
-    temp_tank1 = list()
-    temp_tank2 = list()         
-    temp_tank3 = list()
 
     ### --- Auxiliary variables
     fill_tank2 = False
@@ -128,7 +112,7 @@ def thread_control():
     I3 = 1
 
     ### --- Communicate with the server
-    client_tanks = Client("opc.tcp://Laiss-Laptop.local:53530/OPCUA/SimulationServer")
+    client_tanks = Client("opc.tcp://LAPTOP-2VIRAFSA:53530/OPCUA/SimulationServer")
     client_tanks.connect()
     logging.info("Thread control connected to server")
 
@@ -136,9 +120,17 @@ def thread_control():
     logging.info("Find the available servers")
 
     for server in servers:
-        logging.info("Server URI:", server.ApplicationUri)
-        logging.info("Server ProductURI:", server.ProductUri)
-        logging.info("Discovery URLs:", server.DiscoveryUrls)
+        logging.info(f"Server URI: {server.ApplicationUri}")
+        logging.info(f"Server ProductURI: {server.ProductUri}")
+        logging.info(f"Discovery URLs: {server.DiscoveryUrls}")
+        
+    root_node = client_tanks.get_root_node()
+    objects_node = root_node.get_child(["0:Objects"])
+    print("Nodos disponíveis no servidor:")
+    for node in objects_node.get_children():
+        print(node)
+
+
     
     # get the nodes
     node_h1 = client_tanks.get_node("ns=3;s=h1")
@@ -172,11 +164,11 @@ def thread_control():
             P2 = error2_temp * Kp2_temp + error2_level * Kp2_level
 
             # integrative:
-            time = (i+1) * eps
+            time_i = (i+1) * eps
             Ki2_temp = 5
-            I2 += Ki2_temp * error2_temp * (time - time_prev)
+            I2 += Ki2_temp * error2_temp * (time_i - time_prev)
 
-            time_prev = time
+            time_prev = time_i
 
             # final control action:
             Q_hot = P2 + I2
@@ -207,27 +199,13 @@ def thread_control():
             # final control action:
             Q_cold = P3 + I3
 
-        # Append values for tracing
-        time_steps.append(i)
-        
-        level_tank1.append(h0[0])
-        level_tank2.append(h0[1])
-        level_tank3.append(h0[2])
-
-        valve_1.append(Q_i[0])
-        valve_2.append(Q_i[1])
-        valve_3.append(Q_i[2])
-        valve_hot.append(Q_hot)
-        valve_cold.append(Q_cold)
-
-        temp_tank1.append(T[0])
-        temp_tank2.append(T[1])
-        temp_tank3.append(T[2])
-
         # Send values to server
-        node_h1.set_value(h0[0])
-        node_h2.set_value(h0[1])
-        node_h3.set_value(h0[2])
+        with lock:
+            node_h1.set_value(h0[0])
+            node_h2.set_value(h0[1])
+            node_h3.set_value(h0[2])
+            
+        time.sleep(0.1)
 
         # Call thread that simulates the tanks dynamics
         pool = ThreadPool(processes=1)
@@ -237,30 +215,6 @@ def thread_control():
         h0[1] = h2[-1].item()
         h0[2] = h3[-1].item()
 
-        # Update the interface of visualization
-        plt.clf()
-
-        plt.subplot(3,1,1)
-        plt.plot(time_steps, level_tank1, label=f'Level tank 1: {h0[0]:.4f}')
-        plt.plot(time_steps, level_tank2, label=f'Level tank 2: {h0[1]:.4f}')
-        plt.plot(time_steps, level_tank3, label=f'Level tank 3: {h0[2]:.4f}')
-        plt.legend()
-
-        plt.subplot(3,1,2)
-        plt.plot(time_steps, valve_1, label=f'Valve 1: {Q_i[0]:.4f}')
-        plt.plot(time_steps, valve_2, label=f'Valve 2: {Q_i[1]:.4f}')
-        plt.plot(time_steps, valve_3, label=f'Valve 3: {Q_i[2]:.4f}')
-        plt.plot(time_steps, valve_hot, label=f'Valve hot: {Q_hot:.4f}')
-        plt.plot(time_steps, valve_cold, label=f'Valve cold: {Q_cold:.4f}')
-        plt.legend()
-
-        plt.subplot(3,1,3)
-        plt.plot(time_steps, temp_tank1, label=f'Temperature tank1: {T[0]:.4f}')
-        plt.plot(time_steps, temp_tank2, label=f'Temperature tank2: {T[1]:.4f}')
-        plt.plot(time_steps, temp_tank3, label=f'Temperature tank3: {T[2]:.4f}')
-        plt.legend()
-
-        plt.pause(0.1)
 
     
 
@@ -274,4 +228,6 @@ if __name__ == "__main__":
         format='%(asctime)s - %(message)s'
     )
 
-    thread_control()    
+    lock = threading.Lock()
+    control_thread = threading.Thread(target=thread_control)
+    control_thread.start()    
