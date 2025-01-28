@@ -136,84 +136,170 @@ def thread_control():
     node_h1 = client_tanks.get_node("ns=3;s=h1")
     node_h2 = client_tanks.get_node("ns=3;s=h2")
     node_h3 = client_tanks.get_node("ns=3;s=h3")
+    
+    node_q1 = client_tanks.get_node("ns=3;s=q1")
+    node_q2 = client_tanks.get_node("ns=3;s=q2")
+    node_q3 = client_tanks.get_node("ns=3;s=q3")
+    
+    node_init = client_tanks.get_node("ns=3;s=I1")
+    init = 0
 
     # @TODO: Julia, aqui eu passo as informacoes para o servidor OPCUA somente do tanque 1
     # @TODO: A ideia seria passar esses loops abaixo para o outro código "CLP"
 
     for i in range(500):
-        # Control law tank 1
-        T[0] = 25
-        error1_level = h_ref - h0[0]
-        Kp1_level = 50
-        Q_i[0] = error1_level * Kp1_level
+        init = node_init.get_value()
+        if init == 1:
+            # Control law tank 1
+            T[0] = 25
+            error1_level = h_ref - h0[0]
+            Kp1_level = 50
+            Q_i[0] = error1_level * Kp1_level
 
-        if error1_level < 100 * eps and not fill_tank3:
-            fill_tank2 = True
+            if error1_level < 100 * eps and not fill_tank3:
+                fill_tank2 = True
 
-        if fill_tank2:
-            # Control law tank 2
-            error2_level = h_ref - h0[1]
-            Kp2_level = 30
-            Q_i[1] = error2_level * Kp2_level
+            if fill_tank2:
+                # Control law tank 2
+                error2_level = h_ref - h0[1]
+                Kp2_level = 30
+                Q_i[1] = error2_level * Kp2_level
 
-            T[1] = (Q_i[1] * T[0] + Q_hot * T_hot) / (Q_i[1] + Q_hot + delta)
-            error2_temp = T2_ref - T[1]
+                T[1] = (Q_i[1] * T[0] + Q_hot * T_hot) / (Q_i[1] + Q_hot + delta)
+                error2_temp = T2_ref - T[1]
 
-            # proportional:
-            Kp2_temp = 5
-            P2 = error2_temp * Kp2_temp + error2_level * Kp2_level
+                # proportional:
+                Kp2_temp = 5
+                P2 = error2_temp * Kp2_temp + error2_level * Kp2_level
 
-            # integrative:
-            time_i = (i+1) * eps
-            Ki2_temp = 5
-            I2 += Ki2_temp * error2_temp * (time_i - time_prev)
+                # integrative:
+                time_i = (i+1) * eps
+                Ki2_temp = 5
+                I2 += Ki2_temp * error2_temp * (time_i - time_prev)
 
-            time_prev = time_i
+                time_prev = time_i
 
-            # final control action:
-            Q_hot = P2 + I2
+                # final control action:
+                Q_hot = P2 + I2
 
-            if error2_level < 20 * eps and abs(error2_temp) < 10 * eps:
-                fill_tank3 = True           
+                if error2_level < 20 * eps and abs(error2_temp) < 10 * eps:
+                    fill_tank3 = True           
         
-        if fill_tank3:
-            # Control law tank 3
-            error3_level = h_ref3 - h0[2]
-            Kp3_level = 50
-            Q_i[2] = error3_level * Kp3_level
+            if fill_tank3:
+                # Control law tank 3
+                error3_level = h_ref3 - h0[2]
+                Kp3_level = 50
+                Q_i[2] = error3_level * Kp3_level
 
-            T[2] = (Q_i[2] * T[1] + Q_cold * T_cold) / (Q_i[2] + Q_cold + delta)
-            error3_temp = T3_ref - T[2]
+                T[2] = (Q_i[2] * T[1] + Q_cold * T_cold) / (Q_i[2] + Q_cold + delta)
+                error3_temp = T3_ref - T[2]
 
-            # proportional:
-            Kp3_temp = 4
-            P3 = error3_temp * Kp3_temp + error3_level * Kp3_level
+                # proportional:
+                Kp3_temp = 4
+                P3 = error3_temp * Kp3_temp + error3_level * Kp3_level
 
-            # integrative:
-            time2 = (i+1) * eps
-            Ki3_temp = -5
-            I3 += Ki3_temp * (error3_temp + error3_level) * (time2 - time2_prev)
+                # integrative:
+                time2 = (i+1) * eps
+                Ki3_temp = -5
+                I3 += Ki3_temp * (error3_temp + error3_level) * (time2 - time2_prev)
 
-            time2_prev = time2
+                time2_prev = time2
 
-            # final control action:
-            Q_cold = P3 + I3
+                # final control action:
+                Q_cold = P3 + I3
 
-        # Send values to server
-        with lock:
+            # Send values to server
+            node_h1.set_value(h0[0])
+            node_h2.set_value(h0[1])
+            node_h3.set_value(h0[2])
+            node_q1.set_value(Q_i[0])
+            node_q2.set_value(Q_i[1])
+            node_q3.set_value(Q_i[2])
+            
+            time.sleep(0.1)
+
+            # Call thread that simulates the tanks dynamics
+            pool = ThreadPool(processes=1)
+            new_h0 = pool.apply_async(thread_tanks, args=(h0, Q_i, Q_hot, Q_cold))
+            h1, h2, h3 = new_h0.get()
+            h0[0] = h1[-1].item()      # take the last value from ODE
+            h0[1] = h2[-1].item()
+            h0[2] = h3[-1].item()
+         
+        else:   
+            Q_i[0] = node_q1.get_value()
+            Q_i[1] = node_q2.get_value()
+            Q_i[2] = node_q3.get_value()
+            # Control law tank 1
+            T[0] = 25
+            error1_level = h_ref - h0[0]
+            Kp1_level = 50
+
+            if error1_level < 100 * eps and not fill_tank3:
+                fill_tank2 = True
+
+            if fill_tank2:
+                # Control law tank 2
+                error2_level = h_ref - h0[1]
+                Kp2_level = 30
+                node_q2.set_value(round(Q_i[1], 2))
+
+                T[1] = (Q_i[1] * T[0] + Q_hot * T_hot) / (Q_i[1] + Q_hot + delta)
+                error2_temp = T2_ref - T[1]
+
+                # proportional:
+                Kp2_temp = 5
+                P2 = error2_temp * Kp2_temp + error2_level * Kp2_level
+
+                # integrative:
+                time_i = (i+1) * eps
+                Ki2_temp = 5
+                I2 += Ki2_temp * error2_temp * (time_i - time_prev)
+
+                time_prev = time_i
+
+                # final control action:
+                Q_hot = P2 + I2
+
+                if error2_level < 20 * eps and abs(error2_temp) < 10 * eps:
+                    fill_tank3 = True           
+        
+            if fill_tank3:
+                # Control law tank 3
+                error3_level = h_ref3 - h0[2]
+                Kp3_level = 50
+
+                T[2] = (Q_i[2] * T[1] + Q_cold * T_cold) / (Q_i[2] + Q_cold + delta)
+                error3_temp = T3_ref - T[2]
+
+                # proportional:
+                Kp3_temp = 4
+                P3 = error3_temp * Kp3_temp + error3_level * Kp3_level
+
+                # integrative:
+                time2 = (i+1) * eps
+                Ki3_temp = -5
+                I3 += Ki3_temp * (error3_temp + error3_level) * (time2 - time2_prev)
+
+                time2_prev = time2
+
+                # final control action:
+                Q_cold = P3 + I3
+
+            # Send values to server
             node_h1.set_value(h0[0])
             node_h2.set_value(h0[1])
             node_h3.set_value(h0[2])
             
-        time.sleep(0.1)
+            time.sleep(0.1)
 
-        # Call thread that simulates the tanks dynamics
-        pool = ThreadPool(processes=1)
-        new_h0 = pool.apply_async(thread_tanks, args=(h0, Q_i, Q_hot, Q_cold))
-        h1, h2, h3 = new_h0.get()
-        h0[0] = h1[-1].item()      # take the last value from ODE
-        h0[1] = h2[-1].item()
-        h0[2] = h3[-1].item()
+            # Call thread that simulates the tanks dynamics
+            pool = ThreadPool(processes=1)
+            new_h0 = pool.apply_async(thread_tanks, args=(h0, Q_i, Q_hot, Q_cold))
+            h1, h2, h3 = new_h0.get()
+            h0[0] = h1[-1].item()      # take the last value from ODE
+            h0[1] = h2[-1].item()
+            h0[2] = h3[-1].item()
 
 
     

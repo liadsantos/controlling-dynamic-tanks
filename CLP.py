@@ -7,20 +7,17 @@ import socket
 import threading
 import time
 import select
+import queue
 
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
+message_queue = queue.Queue()
+
 from opcua import Client
 
-def thread_OPC_client():
+def thread_OPC_client(queue):
     Q_i = np.zeros(3,)
-    
-    # COnexão com o servidor TCP/IP
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((HOST, PORT))
-        s.sendall(b"Hello, world")
-          
     
     # Conexão com o servidor OPC
     client_tanks = Client("opc.tcp://LAPTOP-2VIRAFSA:53530/OPCUA/SimulationServer")
@@ -45,6 +42,14 @@ def thread_OPC_client():
     node_h1 = client_tanks.get_node("ns=3;s=h1")
     node_h2 = client_tanks.get_node("ns=3;s=h2")
     node_h3 = client_tanks.get_node("ns=3;s=h3")
+    
+        # get the nodes
+    node_q1 = client_tanks.get_node("ns=3;s=q1")
+    node_q2 = client_tanks.get_node("ns=3;s=q2")
+    node_q3 = client_tanks.get_node("ns=3;s=q3")
+    
+    node_init = client_tanks.get_node("ns=3;s=I1")
+
 
     ### --- History of variables
     time_steps = list()
@@ -63,26 +68,40 @@ def thread_OPC_client():
     # temp_tank2 = list()         
     # temp_tank3 = list()
     
-    h0 = np.zeros(3,) 
+    h0 = np.zeros(3,)
+    Q_i = np.zeros(3,)
 
     for i in range(500):
-        # Append values for tracing
-        data = s.recv(1024)
+        init = node_init.get_value()
+        if not queue.empty():
+            mensagem = queue.get()
+            print(f"Recevida no OPC: {mensagem}")
+            if "Q_i1" in mensagem and init == 0:
+                Q_i[0] = mensagem[5:]
+                node_q1.set_value(Q_i[0])
+            elif  "Q_i2" in mensagem and init == 0:
+                Q_i[1] = mensagem[5:]
+                node_q2.set_value(Q_i[1])
+            elif  "Q_i3" in mensagem and init == 0:
+                Q_i[2] = mensagem[5:]
+                node_q3.set_value(Q_i[2])
+            elif "Iniciar" in mensagem:
+                node_init.set_value(1)
+            elif "Encerrar" in mensagem:
+                node_init.set_value(0)
         
-        if s.find("Q_i1") != -1:
-            Q_i[0] = s[5:]
-        elif  s.find("Q_i2") != -1:
-            Q_i[1] = s[5:]
-        elif  s.find("Q_i3") != -1:
-            Q_i[2] = s[5:]
-
-        print(f"Received {data!r}")
+        else:
+            Q_i[0] = node_q1.get_value()
+            Q_i[1] = node_q2.get_value()
+            Q_i[2] = node_q3.get_value()
+        
+            # Append values for tracing
         time_steps.append(i)
         
         
         h0[0] = node_h1.get_value()
         h0[1] = node_h2.get_value()
-        h0[2] = node_h3.get_value()
+        h0[2] = node_h3.get_value() 
         
         level_tank1.append(h0[0])
         level_tank2.append(h0[1])
@@ -106,13 +125,13 @@ def thread_OPC_client():
         plt.plot(time_steps, level_tank3, label=f'Level tank 3: {h0[2]:.4f}')
         plt.legend()
 
-        # plt.subplot(3,1,2)
-        # plt.plot(time_steps, valve_1, label=f'Valve 1: {Q_i[0]:.4f}')
-        # plt.plot(time_steps, valve_2, label=f'Valve 2: {Q_i[1]:.4f}')
-        # plt.plot(time_steps, valve_3, label=f'Valve 3: {Q_i[2]:.4f}')
+        plt.subplot(3,1,2)
+        plt.plot(time_steps, valve_1, label=f'Valve 1: {Q_i[0]:.4f}')
+        plt.plot(time_steps, valve_2, label=f'Valve 2: {Q_i[1]:.4f}')
+        plt.plot(time_steps, valve_3, label=f'Valve 3: {Q_i[2]:.4f}')
         # plt.plot(time_steps, valve_hot, label=f'Valve hot: {Q_hot:.4f}')
         # plt.plot(time_steps, valve_cold, label=f'Valve cold: {Q_cold:.4f}')
-        # plt.legend()
+        plt.legend()
 
         # plt.subplot(3,1,3)
         # plt.plot(time_steps, temp_tank1, label=f'Temperature tank1: {T[0]:.4f}')
@@ -124,7 +143,7 @@ def thread_OPC_client():
         time.sleep(0.1)
     
 
-def thread_TCP_IP_server():
+def thread_TCP_IP_server(queue):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
@@ -146,8 +165,8 @@ def thread_TCP_IP_server():
                 try:
                     data = sock.recv(1024)
                     if data:
-                        print(f"Recebido: {data.decode('utf-8')}")
-                        sock.sendall(data)  # Envia os dados de volta para o cliente (eco)
+                        mensagem_recebida = data.decode()
+                        print(f"Recebido 2: {mensagem_recebida}") # Envia os dados de volta para o cliente (eco)
                     else:
                         # Se o cliente fechou a conexão
                         print(f"Cliente desconectado")
@@ -157,6 +176,12 @@ def thread_TCP_IP_server():
                     print(f"Erro de comunicação com o cliente")
                     sockets_list.remove(sock)
                     sock.close()
+                if "Q_i" in mensagem_recebida or "Iniciar" in mensagem_recebida or "Encerrar" in mensagem_recebida:
+                    queue.put(mensagem_recebida)
+                    print("Iniciar 20")
+ 
+                    
+        time.sleep(0.1)
     """
     Receive connections from TCP/IP clients to control the process
     """
@@ -172,9 +197,9 @@ if __name__ == "__main__":
         format='%(asctime)s - %(message)s'
     )
 
-    # lock = threading.Lock()
-    # opc_clp_thread = threading.Thread(target=thread_OPC_client)
-    # opc_clp_thread.start()
-    thread_TCP_IP_server()
+    tcp_server_thread = threading.Thread(target=thread_TCP_IP_server, args=(message_queue,))
+    tcp_server_thread.start()
+    opc_clp_thread = threading.Thread(target=thread_OPC_client, args=(message_queue,))
+    opc_clp_thread.start()
 
 
