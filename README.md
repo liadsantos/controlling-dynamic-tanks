@@ -10,9 +10,22 @@ Comece por instalar os pacotes necessários do projeto:
 ```python
 pip install -r requirements.txt
 ```
+
 Para configuração do servidor OPC UA, a imagem a seguir esclarece os objetos criados, com o exemplo da variável altura do tanque 1.
-![image](https://github.com/user-attachments/assets/42cdeb09-e966-45bf-b97d-1a0a6f68550a)
+![image](https://github.com/user-attachments/assets/10bd8bae-d704-4367-af16-c7efea0e12cb)
 
+Para executar a rótina, primeiro inicialize o servidor TCP/IP para receber conexões com o cliente e também estabelecer conexão com o servidor OPC UA configurado anteriormente.
+```python
+python CLP.py
+```
 
+Em um terminal diferente, estabela a comunicação com o cliente TCP/IP. O programa se inicial com controle manual dos tanques, mas ao selecionar 6, é possível trocar para controle automático. <br>
+ATENÇÃO: Uma vez que as equações diferenciais necessitam de uma altura positiva, dependendo do nível dos tanques ao chamar a rotina automática, pode ser que a dinâmica não funcione. 
+```python
+python client_tcpip.py
+```
 
-@Julia, se vc ver que faltou algum pacote no requirements, add por favor (que vc precisou instalar além dos que estão do readme), com as versoes. Nao esquece de completar seu nome também aqui no git :)
+Em um terceiro terminal, chave a rotina que faz os cálculos da dinâmica dos tanques
+```python
+python control_tanks.py
+```
