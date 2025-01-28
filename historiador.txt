@@ -1,0 +1,6 @@
+Enviado: Q_i1 100 
+Enviado: Q_i2 20 
+Enviado: Q_i1 70 
+Enviado: Q_hot 30 
+Enviado: Iniciar 
+Enviado: Quit 

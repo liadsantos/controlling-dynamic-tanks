@@ -16,7 +16,8 @@ def tank1_model(h, t, input, out_tank2, H, r, R, gamma):
 
     if h < 0:
         logging.error('The level of the tank is negative - IMPOSSIBLE')
-        sys.exit()
+        # sys.exit()
+        return 0
 
     A = np.pi * (r + (R-r)/H * h)**2
     dhdt = (input - gamma * np.sqrt(h) - out_tank2) / A
@@ -26,7 +27,8 @@ def tank1_model(h, t, input, out_tank2, H, r, R, gamma):
 def tank2_model(h, t, input, hot_input, out_tank3, H, r, R, gamma):
     if h < 0:
         logging.error('The level of the tank is negative - IMPOSSIBLE')
-        sys.exit()
+        # sys.exit()
+        return 0
 
     A = np.pi * (r + (R-r)/H * h)**2
     dhdt = (input + hot_input - gamma * np.sqrt(h) - out_tank3) / A
@@ -36,7 +38,8 @@ def tank2_model(h, t, input, hot_input, out_tank3, H, r, R, gamma):
 def tank3_model(h, t, input, cold_input, H, r, R, gamma):
     if h < 0:
         logging.error('The level of the tank is negative - IMPOSSIBLE')
-        sys.exit()
+        # sys.exit()
+        return 0
 
     A = np.pi * (r + (R-r)/H * h)**2
     dhdt = (input + cold_input - gamma * np.sqrt(h)) / A
@@ -112,7 +115,7 @@ def thread_control():
     I3 = 1
 
     ### --- Communicate with the server
-    client_tanks = Client("opc.tcp://LAPTOP-2VIRAFSA:53530/OPCUA/SimulationServer")
+    client_tanks = Client("opc.tcp://Laiss-Laptop.local:53530/OPCUA/SimulationServer")
     client_tanks.connect()
     logging.info("Thread control connected to server")
 
@@ -124,14 +127,12 @@ def thread_control():
         logging.info(f"Server ProductURI: {server.ProductUri}")
         logging.info(f"Discovery URLs: {server.DiscoveryUrls}")
         
-    root_node = client_tanks.get_root_node()
-    objects_node = root_node.get_child(["0:Objects"])
-    print("Nodos disponíveis no servidor:")
-    for node in objects_node.get_children():
-        print(node)
-
-
-    
+    # root_node = client_tanks.get_root_node()
+    # objects_node = root_node.get_child(["0:Objects"])
+    # print("Nodos disponíveis no servidor:")
+    # for node in objects_node.get_children():
+    #     print(node)
+  
     # get the nodes
     node_h1 = client_tanks.get_node("ns=3;s=h1")
     node_h2 = client_tanks.get_node("ns=3;s=h2")
@@ -140,15 +141,25 @@ def thread_control():
     node_q1 = client_tanks.get_node("ns=3;s=q1")
     node_q2 = client_tanks.get_node("ns=3;s=q2")
     node_q3 = client_tanks.get_node("ns=3;s=q3")
+    node_qcold = client_tanks.get_node("ns=3;s=qcold")
+    node_qhot = client_tanks.get_node("ns=3;s=qhot")
+
+    node_t1 = client_tanks.get_node("ns=3;s=T1")
+    node_t2 = client_tanks.get_node("ns=3;s=T2")
+    node_t3 = client_tanks.get_node("ns=3;s=T3")
     
-    node_init = client_tanks.get_node("ns=3;s=I1")
-    init = 0
+    node_init = client_tanks.get_node("ns=3;s=I1") 
+    node_quit = client_tanks.get_node("ns=3;s=quit")
 
-    # @TODO: Julia, aqui eu passo as informacoes para o servidor OPCUA somente do tanque 1
-    # @TODO: A ideia seria passar esses loops abaixo para o outro código "CLP"
+    quit = False
+    i = 0
 
-    for i in range(500):
+    while not quit:
+        quit = node_quit.get_value()
         init = node_init.get_value()
+        i += 1
+
+        # AUTO
         if init == 1:
             # Control law tank 1
             T[0] = 25
@@ -212,11 +223,16 @@ def thread_control():
             node_h1.set_value(h0[0])
             node_h2.set_value(h0[1])
             node_h3.set_value(h0[2])
+            
             node_q1.set_value(Q_i[0])
             node_q2.set_value(Q_i[1])
             node_q3.set_value(Q_i[2])
-            
-            time.sleep(0.1)
+            node_qhot.set_value(Q_hot)
+            node_qcold.set_value(Q_cold)
+
+            node_t1.set_value(T[0])
+            node_t2.set_value(T[1])
+            node_t3.set_value(T[2])           
 
             # Call thread that simulates the tanks dynamics
             pool = ThreadPool(processes=1)
@@ -225,18 +241,24 @@ def thread_control():
             h0[0] = h1[-1].item()      # take the last value from ODE
             h0[1] = h2[-1].item()
             h0[2] = h3[-1].item()
-         
+
+            time.sleep(0.1)
+
+        # MANUAL 
         else:   
             Q_i[0] = node_q1.get_value()
             Q_i[1] = node_q2.get_value()
             Q_i[2] = node_q3.get_value()
+            Q_hot = node_qhot.get_value()
+            Q_cold = node_qcold.get_value()
+
             # Control law tank 1
             T[0] = 25
             error1_level = h_ref - h0[0]
             Kp1_level = 50
 
-            if error1_level < 100 * eps and not fill_tank3:
-                fill_tank2 = True
+            fill_tank2 = True
+            fill_tank3 = True
 
             if fill_tank2:
                 # Control law tank 2
@@ -257,9 +279,6 @@ def thread_control():
                 I2 += Ki2_temp * error2_temp * (time_i - time_prev)
 
                 time_prev = time_i
-
-                # final control action:
-                Q_hot = P2 + I2
 
                 if error2_level < 20 * eps and abs(error2_temp) < 10 * eps:
                     fill_tank3 = True           
@@ -283,15 +302,14 @@ def thread_control():
 
                 time2_prev = time2
 
-                # final control action:
-                Q_cold = P3 + I3
-
             # Send values to server
             node_h1.set_value(h0[0])
             node_h2.set_value(h0[1])
             node_h3.set_value(h0[2])
-            
-            time.sleep(0.1)
+
+            node_t1.set_value(T[0])
+            node_t2.set_value(T[1])
+            node_t3.set_value(T[2])
 
             # Call thread that simulates the tanks dynamics
             pool = ThreadPool(processes=1)
@@ -300,9 +318,8 @@ def thread_control():
             h0[0] = h1[-1].item()      # take the last value from ODE
             h0[1] = h2[-1].item()
             h0[2] = h3[-1].item()
-
-
-    
+            
+            time.sleep(0.1)
 
 if __name__ == "__main__":
     plt.ion()
@@ -313,6 +330,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(message)s'
     )
+    logging.getLogger("opcua").setLevel(logging.WARNING)
 
     lock = threading.Lock()
     control_thread = threading.Thread(target=thread_control)
