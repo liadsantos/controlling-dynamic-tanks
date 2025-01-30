@@ -1,6 +1,4 @@
 import logging
-from opcua import Client
-from opcua.ua import AttributeIds
 import numpy as np
 import matplotlib.pyplot as plt
 import socket
@@ -9,13 +7,53 @@ import time
 import select
 import queue
 
+from opcua import Client
+
 # Define the IP address and the server port
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 mensagem_queue = queue.Queue()
 
-from opcua import Client
+def plot_dynamic(
+        time_steps, 
+        levels_tanks,
+        input_valves,
+        valve_hot,
+        valve_cold,
+        temperature_tanks,
+        h0,
+        T,
+        Q_i,
+        Q_hot,
+        Q_cold
+    ):
+
+    plt.rcParams["figure.figsize"] = (12, 6)
+    plt.clf()
+
+    plt.subplot(3,1,1)
+    plt.plot(time_steps, levels_tanks[0], label=f'Level tank 1: {h0[0]:.4f}')
+    plt.plot(time_steps, levels_tanks[1], label=f'Level tank 2: {h0[1]:.4f}')
+    plt.plot(time_steps, levels_tanks[2], label=f'Level tank 3: {h0[2]:.4f}')
+    plt.legend()
+
+    plt.subplot(3,1,2)
+    plt.plot(time_steps, input_valves[0], label=f'Valve 1: {Q_i[0]:.4f}')
+    plt.plot(time_steps, input_valves[1], label=f'Valve 2: {Q_i[1]:.4f}')
+    plt.plot(time_steps, input_valves[2], label=f'Valve 3: {Q_i[2]:.4f}')
+    plt.plot(time_steps, valve_hot, label=f'Valve hot: {Q_hot:.4f}')
+    plt.plot(time_steps, valve_cold, label=f'Valve cold: {Q_cold:.4f}')
+    plt.legend()
+
+    plt.subplot(3,1,3)
+    plt.plot(time_steps, temperature_tanks[0], label=f'Temperature tank1: {T[0]:.4f}')
+    plt.plot(time_steps, temperature_tanks[1], label=f'Temperature tank2: {T[1]:.4f}')
+    plt.plot(time_steps, temperature_tanks[2], label=f'Temperature tank3: {T[2]:.4f}')
+    plt.legend()
+
+    plt.pause(0.1)
+    time.sleep(0.1)
 
 def thread_OPC_client(queue):    
     ### --- Conexão com o servidor OPC
@@ -171,31 +209,19 @@ def thread_OPC_client(queue):
         temp_tank3.append(T[2])
 
         # Update the interface of visualization
-        plt.rcParams["figure.figsize"] = (12, 6)
-        plt.clf()
-
-        plt.subplot(3,1,1)
-        plt.plot(time_steps, level_tank1, label=f'Level tank 1: {h0[0]:.4f}')
-        plt.plot(time_steps, level_tank2, label=f'Level tank 2: {h0[1]:.4f}')
-        plt.plot(time_steps, level_tank3, label=f'Level tank 3: {h0[2]:.4f}')
-        plt.legend()
-
-        plt.subplot(3,1,2)
-        plt.plot(time_steps, valve_1, label=f'Valve 1: {Q_i[0]:.4f}')
-        plt.plot(time_steps, valve_2, label=f'Valve 2: {Q_i[1]:.4f}')
-        plt.plot(time_steps, valve_3, label=f'Valve 3: {Q_i[2]:.4f}')
-        plt.plot(time_steps, valve_hot, label=f'Valve hot: {Q_hot:.4f}')
-        plt.plot(time_steps, valve_cold, label=f'Valve cold: {Q_cold:.4f}')
-        plt.legend()
-
-        plt.subplot(3,1,3)
-        plt.plot(time_steps, temp_tank1, label=f'Temperature tank1: {T[0]:.4f}')
-        plt.plot(time_steps, temp_tank2, label=f'Temperature tank2: {T[1]:.4f}')
-        plt.plot(time_steps, temp_tank3, label=f'Temperature tank3: {T[2]:.4f}')
-        plt.legend()
-
-        plt.pause(0.1)
-        time.sleep(0.1)
+        plot_dynamic(
+            time_steps, 
+            [level_tank1, level_tank2, level_tank3], 
+            [valve_1, valve_2, valve_3],
+            valve_hot, 
+            valve_cold,
+            [temp_tank1, temp_tank2, temp_tank3],
+            h0,
+            T,
+            Q_i,
+            Q_hot,
+            Q_cold
+        )
 
 def thread_TCP_IP_server(queue):   
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -257,6 +283,5 @@ if __name__ == "__main__":
 
     tcp_server_thread = threading.Thread(target=thread_TCP_IP_server, args=(mensagem_queue,))
     tcp_server_thread.start()
-    # opc_clp_thread = threading.Thread(target=thread_OPC_client, args=(mensagem_queue,))
-    # opc_clp_thread.start()
+
     thread_OPC_client(mensagem_queue)
