@@ -1,6 +1,6 @@
 # Controle de tanques dinâmicos com sistemas distribuídos
 
-Alunas: <br>
+**Alunas:** <br>
 Júlia Tarchi Maia de Souza <br>
 Lais Isabelle Alves dos Santos
 
@@ -11,8 +11,9 @@ Comece por instalar os pacotes necessários do projeto:
 pip install -r requirements.txt
 ```
 
-Para configuração do servidor OPC UA, a imagem a seguir esclarece os objetos criados, com o exemplo da variável altura do tanque 1.
-![image](https://github.com/user-attachments/assets/10bd8bae-d704-4367-af16-c7efea0e12cb)
+Para configuração do servidor OPC UA [Prosys](https://prosysopc.com/products/opc-ua-simulation-server/), a imagem a seguir esclarece os objetos criados, com o exemplo da variável altura do tanque 1.
+![image](https://github.com/user-attachments/assets/75c5dcd1-069e-47c9-9b58-bf453551fe82)
+
 
 Para executar a rótina, primeiro inicialize o servidor TCP/IP para receber conexões com o cliente e também estabelecer conexão com o servidor OPC UA configurado anteriormente.
 ```python
